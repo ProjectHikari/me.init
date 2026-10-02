@@ -129,6 +129,9 @@ func (h *host) execute(ctx context.Context, r request) error {
 	case "start":
 		return h.rt.Start(ctx, r.Plugin)
 	case "stop":
+		if err := h.checkRemoval(r.Plugin); err != nil {
+			return err
+		}
 		return h.rt.Stop(ctx, r.Plugin)
 	case "reload":
 		return h.rt.Reload(ctx, r.Plugin)

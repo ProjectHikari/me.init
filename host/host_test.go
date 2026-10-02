@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -91,6 +93,53 @@ func TestShutdownKeepsDirtyResourcesAvailableForRetry(t *testing.T) {
 }
 
 type frameSink struct{ frames chan map[string]any }
+
+func TestProtectedModulesRejectRemovalAndStillReloadAndClose(t *testing.T) {
+	h := mountHost(t)
+	for _, id := range []string{"me.init", "me.cli"} {
+		dir := mountFixture(t, h, id, "")
+		if err := h.mount(context.Background(), dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+	original, err := os.ReadFile(h.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := h.rt.Snapshot()
+	for _, method := range []string{"stop", "unmount"} {
+		for _, id := range []string{"core", "me.init", "me.cli"} {
+			if err := h.execute(context.Background(), request{Method: method, Plugin: id}); err == nil || !strings.Contains(err.Error(), "critical module") {
+				t.Fatal("critical module removal accepted", method, id, err)
+			}
+			if !reflect.DeepEqual(before, h.rt.Snapshot()) {
+				t.Fatal("rejected removal changed runtime")
+			}
+		}
+	}
+	if err := h.unmount(context.Background(), "me.cli"); err == nil {
+		t.Fatal("direct unmount bypassed protection")
+	}
+	if data, err := os.ReadFile(h.configPath); err != nil || !bytes.Equal(data, original) {
+		t.Fatal("rejected removal changed config", err)
+	}
+	for _, id := range []string{"me.init", "me.cli"} {
+		previous, _ := h.rt.Status(id)
+		if err := h.execute(context.Background(), request{Method: "reload", Plugin: id}); err != nil {
+			t.Fatal(err)
+		}
+		current, _ := h.rt.Status(id)
+		if current.State != core.Running || current.Generation <= previous.Generation {
+			t.Fatal("protected module could not reload", current)
+		}
+	}
+	if err := h.execute(context.Background(), request{Method: "shutdown"}); err != nil {
+		t.Fatal(err)
+	}
+	if h.rt.Stats().Resources != 0 || h.current().State != "closed" {
+		t.Fatal("normal exit blocked", h.current())
+	}
+}
 
 func (s *frameSink) Write(data []byte) (int, error) {
 	var frame map[string]any

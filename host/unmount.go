@@ -11,6 +11,9 @@ import (
 )
 
 func (h *host) unmount(ctx context.Context, id string) error {
+	if err := h.checkRemoval(id); err != nil {
+		return err
+	}
 	h.mu.Lock()
 	state := h.state
 	h.mu.Unlock()
@@ -82,5 +85,13 @@ func (h *host) unmount(ctx context.Context, id string) error {
 	h.config, h.configData = next, data
 	h.forgetMount(id)
 	h.out.log("ok", "me.init", h.out.text("Unmounted %s", id))
+	return nil
+}
+
+func (h *host) checkRemoval(id string) error {
+	switch id {
+	case "core", "me.init", "me.cli":
+		return fmt.Errorf("%s", h.out.text("critical module %s cannot be stopped or unmounted; use /quit to close Core", id))
+	}
 	return nil
 }
