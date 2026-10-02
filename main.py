@@ -17,7 +17,7 @@ from typing import Any
 import localization
 from localization import tr
 
-VERSION = "b1-Rc4"
+VERSION = "b1-Rc5"
 _output_lock = threading.Lock()
 
 

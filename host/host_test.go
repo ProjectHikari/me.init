@@ -6,12 +6,49 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
 	"testing"
 	"time"
 
 	"testbot/core"
 	"testbot/core/sdk"
 )
+
+func TestStartupOrderUsesServicesWithoutEnablingDisabledProviders(t *testing.T) {
+	tests := []struct {
+		name    string
+		plugins []pluginConfig
+		want    []string
+	}{
+		{"providers first", []pluginConfig{
+			{ID: "ui", Autostart: true, Required: []string{"chat"}, Optional: []string{"body"}},
+			{ID: "chat", Autostart: true, Provides: []string{"chat"}, Required: []string{"model"}},
+			{ID: "model", Autostart: true, Provides: []string{"model"}},
+			{ID: "body", Autostart: true, Provides: []string{"body"}},
+		}, []string{"model", "chat", "body", "ui"}},
+		{"disabled and absent", []pluginConfig{
+			{ID: "consumer", Autostart: true, Required: []string{"disabled", "absent"}},
+			{ID: "disabled", Provides: []string{"disabled"}},
+			{ID: "independent", Autostart: true},
+		}, []string{"consumer", "independent"}},
+		{"optional cycle", []pluginConfig{
+			{ID: "a", Autostart: true, Provides: []string{"a"}, Optional: []string{"b"}},
+			{ID: "b", Autostart: true, Provides: []string{"b"}, Optional: []string{"a"}},
+		}, []string{"a", "b"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			before := append([]pluginConfig(nil), tt.plugins...)
+			var ids []string
+			for _, p := range startupOrder(tt.plugins) {
+				ids = append(ids, p.ID)
+			}
+			if !reflect.DeepEqual(ids, tt.want) || !reflect.DeepEqual(before, tt.plugins) {
+				t.Fatalf("order=%v want=%v; configuration changed=%v", ids, tt.want, !reflect.DeepEqual(before, tt.plugins))
+			}
+		})
+	}
+}
 
 func TestShutdownKeepsDirtyResourcesAvailableForRetry(t *testing.T) {
 	rt := core.New()

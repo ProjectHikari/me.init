@@ -87,7 +87,8 @@ func (h *host) publish() {
 			if item.State == core.Failed || item.State == core.Quarantined {
 				level = "error"
 			}
-			if item.State != core.Registered {
+			_, configured := h.plugins[item.ID]
+			if item.State != core.Registered && !(configured && item.State == core.Starting) {
 				h.out.log(level, item.ID, message)
 			}
 			changed = true
@@ -194,10 +195,7 @@ func serve(h *host, input io.Reader, plugins []pluginConfig) int {
 	done := make(chan error, 1)
 	var pending request
 	go func() {
-		for _, p := range plugins {
-			if !p.Autostart {
-				continue
-			}
+		for _, p := range startupOrder(plugins) {
 			if initContext.Err() != nil {
 				break
 			}

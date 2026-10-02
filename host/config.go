@@ -33,6 +33,54 @@ type config struct {
 	DisposeTimeoutMS int            `json:"disposeTimeoutMs,omitempty"`
 }
 
+func startupOrder(plugins []pluginConfig) []pluginConfig {
+	pending := make([]pluginConfig, 0, len(plugins))
+	providers := make(map[string]string)
+	for _, p := range plugins {
+		if !p.Autostart {
+			continue
+		}
+		pending = append(pending, p)
+		for _, key := range p.Provides {
+			providers[key] = p.ID
+		}
+	}
+	ordered := make([]pluginConfig, 0, len(pending))
+	for len(pending) > 0 {
+		waiting := make(map[string]bool, len(pending))
+		for _, p := range pending {
+			waiting[p.ID] = true
+		}
+		blocked := func(p pluginConfig, keys []string) bool {
+			for _, key := range keys {
+				if id := providers[key]; id != p.ID && waiting[id] {
+					return true
+				}
+			}
+			return false
+		}
+		selected := -1
+		// optional只影响启动顺序，循环或缺失不能阻止启动
+		for _, optional := range []bool{true, false} {
+			for i, p := range pending {
+				if !blocked(p, p.Required) && (!optional || !blocked(p, p.Optional)) {
+					selected = i
+					break
+				}
+			}
+			if selected >= 0 {
+				break
+			}
+		}
+		if selected < 0 {
+			selected = 0
+		}
+		ordered = append(ordered, pending[selected])
+		pending = append(pending[:selected], pending[selected+1:]...)
+	}
+	return ordered
+}
+
 func readConfig(path string) (config, error) {
 	result, _, err := readConfigFile(path)
 	return result, err
@@ -133,6 +181,7 @@ func (p pluginConfig) definition(root, configDir string, logs *output) (sdk.Defi
 			return nil, err
 		}
 		return sdk.StartFunc(func(ctx sdk.Context) error {
+			logs.log("info", p.ID, logs.text("Starting"))
 			if err := ctx.Defer("plugin log tail", func(context.Context) error { writer.flush(); return nil }); err != nil {
 				return err
 			}
