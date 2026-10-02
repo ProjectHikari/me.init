@@ -57,6 +57,7 @@
     "plugin configuration changed; restart CLI before mounting or unmounting": "插件配置已被修改，重启CLI后再挂载或卸载",
     "plugin %s is already configured": "插件%s已在配置中",
     "runtime is not running": "运行时未处于运行状态",
+    "critical module %s cannot be stopped or unmounted; use /quit to close Core": "%s是关键模块，不能单独停止或卸载，退出请使用/quit",
     "Start a plugin": "启动插件",
     "Stop a plugin and its dependents": "停止插件及依赖它的插件",
     "Dispose and create a fresh generation": "回收旧代并创建新实例",
