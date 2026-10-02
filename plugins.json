@@ -1,0 +1,17 @@
+{
+  "plugins": [
+    {
+      "id": "me.cli",
+      "command": ["${NODE}", "${ROOT}/me.CLI/plugin.mts"],
+      "provides": ["me.cli.info"],
+      "required": ["me.init.info"],
+      "autostart": true
+    },
+    {
+      "id": "me.init",
+      "command": ["${PYTHON}", "${ROOT}/me.init/plugin.py"],
+      "provides": ["me.init.info"],
+      "autostart": true
+    }
+  ]
+}
