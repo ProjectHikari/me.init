@@ -68,7 +68,7 @@ func (h *host) unchangedConfig() error {
 		return err
 	}
 	if !bytes.Equal(data, h.configData) {
-		return fmt.Errorf("%s", h.out.text("plugin configuration changed; restart CLI before mounting"))
+		return fmt.Errorf("%s", h.out.text("plugin configuration changed; restart CLI before mounting or unmounting"))
 	}
 	return nil
 }
@@ -134,34 +134,11 @@ func (h *host) mount(ctx context.Context, path string) error {
 	}
 	next := h.config
 	next.Plugins = append(append([]pluginConfig(nil), next.Plugins...), p)
-	data, err := json.MarshalIndent(next, "", "  ")
+	temporary, data, err := h.prepareConfig(next, ".plugins-mount-*")
 	if err != nil {
 		return err
 	}
-	data = append(data, '\n')
-	if len(data) > 1<<20 {
-		return fmt.Errorf("config exceeds 1 MiB")
-	}
-	info, err := os.Stat(h.configPath)
-	if err != nil {
-		return err
-	}
-	temporary, err := os.CreateTemp(filepath.Dir(h.configPath), ".plugins-mount-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(temporary.Name())
-	err = temporary.Chmod(info.Mode().Perm())
-	if err == nil {
-		_, err = temporary.Write(data)
-	}
-	if err == nil {
-		err = temporary.Sync()
-	}
-	err = errors.Join(err, temporary.Close())
-	if err != nil {
-		return err
-	}
+	defer os.Remove(temporary)
 	if err = ctx.Err(); err != nil {
 		return err
 	}
@@ -181,7 +158,7 @@ func (h *host) mount(ctx context.Context, path string) error {
 		err = h.unchangedConfig()
 	}
 	if err == nil {
-		err = os.Rename(temporary.Name(), h.configPath)
+		err = os.Rename(temporary, h.configPath)
 	}
 	if err != nil {
 		return h.rollbackMount(p.ID, err)
@@ -189,4 +166,37 @@ func (h *host) mount(ctx context.Context, path string) error {
 	h.config, h.configData = next, data
 	h.out.log("ok", "me.init", h.out.text("Mounted %s", p.ID))
 	return nil
+}
+
+func (h *host) prepareConfig(next config, pattern string) (string, []byte, error) {
+	data, err := json.MarshalIndent(next, "", "  ")
+	if err != nil {
+		return "", nil, err
+	}
+	data = append(data, '\n')
+	if len(data) > 1<<20 {
+		return "", nil, fmt.Errorf("config exceeds 1 MiB")
+	}
+	info, err := os.Stat(h.configPath)
+	if err != nil {
+		return "", nil, err
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(h.configPath), pattern)
+	if err != nil {
+		return "", nil, err
+	}
+
+	err = temporary.Chmod(info.Mode().Perm())
+	if err == nil {
+		_, err = temporary.Write(data)
+	}
+	if err == nil {
+		err = temporary.Sync()
+	}
+	err = errors.Join(err, temporary.Close())
+	if err != nil {
+		_ = os.Remove(temporary.Name())
+		return "", nil, err
+	}
+	return temporary.Name(), data, nil
 }

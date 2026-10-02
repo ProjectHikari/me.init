@@ -15,7 +15,7 @@ async def start(ctx: Context) -> None:
     async def info(method: str, _params: Any) -> Any:
         if method != "info":
             raise ValueError(f"unknown method {method}")
-        return {"name": ctx.plugin_id, "version": "b1-Rc5", "generation": ctx.generation,
+        return {"name": ctx.plugin_id, "version": "b1-Rc6", "generation": ctx.generation,
                 "python": platform.python_version(), "pid": os.getpid(), "language": language}
 
     await ctx.provide("me.init.info", info)

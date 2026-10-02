@@ -117,6 +117,8 @@ func (h *host) execute(ctx context.Context, r request) error {
 	switch r.Method {
 	case "mount":
 		return h.mount(ctx, r.Path)
+	case "unmount":
+		return h.unmount(ctx, r.Plugin)
 	case "status":
 		if r.Plugin != "" {
 			if _, ok := h.rt.Status(r.Plugin); !ok {
@@ -262,6 +264,9 @@ func serve(h *host, input io.Reader, plugins []pluginConfig) int {
 			}
 			if r.Method == "mount" {
 				message = h.out.text("Mounting %s", r.Path)
+			}
+			if r.Method == "unmount" {
+				message = h.out.text("Unmounting %s", r.Plugin)
 			}
 			if r.Method != "shutdown" {
 				h.out.log("info", "core", message)
