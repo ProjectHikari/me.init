@@ -219,14 +219,50 @@ func TestPluginLogLevelsAndUnterminatedTail(t *testing.T) {
 	sink := &frameSink{frames: make(chan map[string]any, 8)}
 	w := &logWriter{out: &output{writer: sink}, source: "fixture"}
 	_, _ = w.Write([]byte("[WARN] split "))
-	_, _ = w.Write([]byte("message\nlast line"))
+	_, _ = w.Write([]byte("message\n[FA"))
+	_, _ = w.Write([]byte("ILED] generation failed\nlast line"))
 	w.flush()
-	first, last := <-sink.frames, <-sink.frames
+	first, failed, last := <-sink.frames, <-sink.frames, <-sink.frames
 	if first["level"] != "warn" || first["message"] != "split message" || first["source"] != "fixture" {
 		t.Fatal(first)
 	}
 	if last["level"] != "info" || last["message"] != "last line" {
 		t.Fatal(last)
+	}
+	if failed["level"] != "failed" || failed["message"] != "generation failed" || failed["source"] != "fixture" {
+		t.Fatal(failed)
+	}
+}
+
+func TestPluginLogClassificationPreservesSourceAndAttributes(t *testing.T) {
+	for _, tt := range []struct {
+		line, level, message string
+	}{
+		{"\x1b[31m[ERROR]\x1b[0m internal failure", "error", "internal failure"},
+		{"  [warning]\twill retry\r\n", "warn", "will retry"},
+		{"[OK] ready\n", "ok", "ready"},
+		{"[FAILED] request rejected\n", "failed", "request rejected"},
+		{"plain stderr\n", "info", "plain stderr"},
+		{"[UNKNOWN] untouched\n", "info", "[UNKNOWN] untouched"},
+		{`{"level":"ERROR","msg":"broken","source":"core","error":"detail"}` + "\n", "error", `broken - {"error":"detail","source":"core"}`},
+		{`{"level":"failed","message":"rejected"}` + "\n", "failed", "rejected"},
+		{`{"level":"debug","message":"connected"}` + "\n", "info", "connected"},
+		{`{"level":"unknown","message":"original"}` + "\n", "info", `{"level":"unknown","message":"original"}`},
+		{`{"level":"error","msg":123}` + "\n", "info", `{"level":"error","msg":123}`},
+		{`{"level":"error",broken}` + "\n", "info", `{"level":"error",broken}`},
+	} {
+		t.Run(tt.line, func(t *testing.T) {
+			sink := &frameSink{frames: make(chan map[string]any, 1)}
+			writer := &logWriter{out: &output{writer: sink}, source: "fixture"}
+			for _, b := range []byte(tt.line) {
+				_, _ = writer.Write([]byte{b})
+			}
+			writer.flush()
+			frame := <-sink.frames
+			if frame["level"] != tt.level || frame["message"] != tt.message || frame["source"] != "fixture" {
+				t.Fatal(frame)
+			}
+		})
 	}
 }
 

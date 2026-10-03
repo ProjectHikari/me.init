@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"io"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -92,14 +93,62 @@ func (w *logWriter) flush() {
 }
 
 func (w *logWriter) line(text string) {
-	for _, level := range []string{"info", "ok", "warn", "error"} {
-		prefix := "[" + strings.ToUpper(level) + "]"
-		if strings.HasPrefix(text, prefix) {
-			w.out.log(level, w.source, strings.TrimLeft(text[len(prefix):], " "))
-			return
+	level, message := classifyPluginLog(text)
+	w.out.log(level, w.source, message)
+}
+
+var logColor = regexp.MustCompile(`\x1b\[[0-9;:]*m`)
+
+func pluginLogLevel(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "trace", "debug", "info":
+		return "info"
+	case "ok", "success":
+		return "ok"
+	case "warn", "warning":
+		return "warn"
+	case "failed":
+		return "failed"
+	case "error", "critical", "fatal", "panic":
+		return "error"
+	default:
+		return ""
+	}
+}
+
+func classifyPluginLog(text string) (string, string) {
+	text = logColor.ReplaceAllString(text, "")
+	trimmed := strings.TrimSpace(text)
+	if strings.HasPrefix(trimmed, "[") {
+		if end := strings.IndexByte(trimmed, ']'); end > 0 {
+			if level := pluginLogLevel(trimmed[1:end]); level != "" {
+				return level, strings.TrimLeft(trimmed[end+1:], " \t")
+			}
 		}
 	}
-	w.out.log("info", w.source, text)
+	var fields map[string]json.RawMessage
+	if strings.HasPrefix(trimmed, "{") && json.Unmarshal([]byte(trimmed), &fields) == nil {
+		var rawLevel, message string
+		if json.Unmarshal(fields["level"], &rawLevel) == nil {
+			if level := pluginLogLevel(rawLevel); level != "" {
+				key := "message"
+				if _, found := fields[key]; !found {
+					key = "msg"
+				}
+				if json.Unmarshal(fields[key], &message) == nil {
+					delete(fields, "level")
+					delete(fields, key)
+					// 来源由宿主绑定，插件字段只作为日志内容保留
+					if len(fields) > 0 {
+						attributes, _ := json.Marshal(fields)
+						message += " - " + string(attributes)
+					}
+					return level, message
+				}
+			}
+		}
+	}
+	return "info", text
 }
 
 func (w *logWriter) Write(data []byte) (int, error) {
